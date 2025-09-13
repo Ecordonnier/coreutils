@@ -1,0 +1,22 @@
+# spell-checker:ignore gnulib
+
+name: 'Checkout GNU coreutils'
+description: 'Checkout and initialize GNU coreutils with submodules'
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout GNU coreutils
+      uses: actions/checkout@v5
+      with:
+        repository: 'coreutils/coreutils'
+        path: 'gnu'
+        ref: 'v9.7'
+        submodules: false
+        persist-credentials: false
+    - name: Initialize submodules
+      shell: bash
+      run: |
+        git submodule sync --recursive
+        git config submodule.gnulib.url https://github.com/coreutils/gnulib.git
+        git submodule update --init --recursive --depth 1
+      working-directory: gnu
