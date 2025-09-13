@@ -5,7 +5,7 @@ name: CICD
 # spell-checker:ignore (jargon) SHAs deps dequote softprops subshell toolchain fuzzers dedupe devel profdata
 # spell-checker:ignore (people) Peltoche rivy dtolnay Anson dawidd
 # spell-checker:ignore (shell/tools) binutils choco clippy dmake dpkg esac fakeroot fdesc fdescfs gmake grcov halium lcov libclang libfuse libssl limactl mkdir nextest nocross pacman popd printf pushd redoxer rsync rustc rustfmt rustup shopt sccache utmpdump xargs
-# spell-checker:ignore (misc) aarch alnum armhf bindir busytest coreutils defconfig DESTDIR gecos getenforce gnueabihf issuecomment maint manpages msys multisize noconfirm nofeatures nullglob onexitbegin onexitend pell runtest Swatinem tempfile testsuite toybox uutils libsystemd codspeed
+# spell-checker:ignore (misc) aarch alnum armhf bindir busytest coreutils defconfig DESTDIR gecos getenforce gnueabihf issuecomment logind maint manpages msys multisize noconfirm nofeatures nullglob onexitbegin onexitend pell runtest Swatinem tempfile testsuite toybox uutils libsystemd codspeed
 
 env:
   PROJECT_NAME: coreutils
@@ -588,7 +588,7 @@ jobs:
           - { os: ubuntu-latest  , target: i686-unknown-linux-gnu      , features: "feat_os_unix,test_risky_names", use-cross: use-cross }
           - { os: ubuntu-latest  , target: i686-unknown-linux-musl     , features: feat_os_unix_musl , use-cross: use-cross }
           - { os: ubuntu-latest  , target: x86_64-unknown-linux-gnu    , features: "feat_os_unix,test_risky_names", use-cross: use-cross }
-          - { os: ubuntu-latest  , target: x86_64-unknown-linux-gnu    , features: "feat_os_unix,uudoc"   , use-cross: no, workspace-tests: true }
+          - { os: ubuntu-latest  , target: x86_64-unknown-linux-gnu    , features: "feat_os_unix,uudoc,feat_systemd_logind", use-cross: no, workspace-tests: true }
           - { os: ubuntu-latest  , target: x86_64-unknown-linux-musl   , features: feat_os_unix_musl , use-cross: use-cross }
           # broken by network error
           # - { os: ubuntu-latest  , target: x86_64-unknown-redox        , features: feat_os_unix_redox     , use-cross: redoxer , skip-tests: true }
@@ -719,7 +719,7 @@ jobs:
           1|t|true|y|yes)
             # This also runs tests in other packages in the source directory (e.g. uucore).
             # We cannot enable this everywhere as some platforms are currently broken, and
-            # we cannot use `cross` as its Docker image is ancient (Ubuntu 16.04) and is
+            # we cannot use `cross` as its Docker image is ancient (Ubuntu 20.04) and is
             # missing required system dependencies (e.g. recent libclang-dev).
             CARGO_TEST_OPTIONS='--workspace'
             ;;
@@ -832,6 +832,27 @@ jobs:
         ## Build
         ${{ steps.vars.outputs.CARGO_CMD }} ${{ steps.vars.outputs.CARGO_CMD_OPTIONS }} build --release \
         --target=${{ matrix.job.target }} ${{ matrix.job.cargo-options }} ${{ steps.vars.outputs.CARGO_FEATURES_OPTION }} ${{ steps.vars.outputs.CARGO_DEFAULT_FEATURES_OPTION }}
+    # TODO: Once ubuntu-latest updates to 26.04 (which uses systemd-logind by default),
+    # invert this logic to build GNU coreutils WITHOUT --enable-systemd when feat_systemd_logind is NOT present,
+    # since the default will then be systemd-logind for both uutils and GNU coreutils.
+    - name: Checkout GNU coreutils (for systemd feature testing)
+      if: contains(matrix.job.features, 'feat_systemd_logind')
+      uses: ./.github/actions/checkout-gnu-coreutils
+    - name: Build GNU coreutils with systemd (for systemd feature testing)
+      if: contains(matrix.job.features, 'feat_systemd_logind')
+      uses: ./.github/actions/build-gnu-coreutils
+      with:
+        extra-configure-options: '--enable-systemd'
+        repo-dir: '.'
+    - name: Install GNU binaries with systemd support (for systemd feature testing)
+      if: contains(matrix.job.features, 'feat_systemd_logind')
+      shell: bash
+      run: |
+        # Install the systemd-enabled binaries in PATH so tests can find them
+        sudo cp gnu/src/who /usr/local/bin/who
+        sudo cp gnu/src/users /usr/local/bin/users
+        sudo cp gnu/src/uptime /usr/local/bin/uptime
+        sudo cp gnu/src/pinky /usr/local/bin/pinky
     - name: Test
       if: matrix.job.skip-tests != true
       shell: bash
@@ -1146,7 +1167,7 @@ jobs:
 
         case '${{ matrix.job.os }}' in
           ubuntu-latest)
-            sudo apt-get -y update ; sudo apt-get -y install libselinux1-dev
+            sudo apt-get -y update ; sudo apt-get -y install libselinux1-dev libsystemd-dev
             # pinky is a tool to show logged-in users from utmp, and gecos fields from /etc/passwd.
             # In GitHub Action *nix VMs, no accounts log in, even the "runner" account that runs the commands, and "system boot" entry is missing.
             # The account also has empty gecos fields.

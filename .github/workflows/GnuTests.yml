@@ -29,7 +29,6 @@ env:
   TEST_ROOT_FULL_SUMMARY_FILE: 'gnu-root-full-result.json'
   TEST_SELINUX_FULL_SUMMARY_FILE: 'selinux-gnu-full-result.json'
   TEST_SELINUX_ROOT_FULL_SUMMARY_FILE: 'selinux-root-gnu-full-result.json'
-  REPO_GNU_REF: "v9.8"
 
 jobs:
   native:
@@ -49,29 +48,12 @@ jobs:
     - uses: Swatinem/rust-cache@v2
       with:
         workspaces: "./uutils -> target"
-    - name: Checkout code (GNU coreutils)
-      uses: actions/checkout@v5
-      with:
-        repository: 'coreutils/coreutils'
-        path: 'gnu'
-        ref: ${{ env.REPO_GNU_REF }}
-        submodules: false
-        persist-credentials: false
-    - name: Override submodule URL and initialize submodules
-      # Use github instead of upstream git server
-      run: |
-        git submodule sync --recursive
-        git config submodule.gnulib.url https://github.com/coreutils/gnulib.git
-        git submodule update --init --recursive --depth 1
-      working-directory: gnu
+    - name: Checkout GNU coreutils
+      uses: ./uutils/.github/actions/checkout-gnu-coreutils
+    - name: Build GNU coreutils
+      uses: ./uutils/.github/actions/build-gnu-coreutils
 
-    #### Build environment setup
-    - name: Install dependencies
-      shell: bash
-      run: |
-        ## Install dependencies
-        sudo apt-get update
-        sudo apt-get install -y autoconf autopoint bison texinfo gperf gcc g++ gdb python3-pyinotify jq valgrind libexpect-perl libacl1-dev libattr1-dev libcap-dev libselinux1-dev attr quilt
+    #### Test environment setup
     - name: Add various locales
       shell: bash
       run: |
@@ -93,15 +75,6 @@ jobs:
         sudo update-locale
         echo "After:"
         locale -a
-
-    ### Build
-    - name: Build binaries
-      shell: bash
-      run: |
-        ## Build binaries
-        cd 'uutils'
-        bash util/build-gnu.sh --release-build
-
     ### Run tests as user
     - name: Run GNU tests
       shell: bash
@@ -171,21 +144,8 @@ jobs:
     - uses: Swatinem/rust-cache@v2
       with:
         workspaces: "./uutils -> target"
-    - name: Checkout code (GNU coreutils)
-      uses: actions/checkout@v5
-      with:
-        repository: 'coreutils/coreutils'
-        path: 'gnu'
-        ref: ${{ env.REPO_GNU_REF }}
-        submodules: false
-        persist-credentials: false
-    - name: Override submodule URL and initialize submodules
-      # Use github instead of upstream git server
-      run: |
-        git submodule sync --recursive
-        git config submodule.gnulib.url https://github.com/coreutils/gnulib.git
-        git submodule update --init --recursive --depth 1
-      working-directory: gnu
+    - name: Checkout GNU coreutils
+      uses: ./uutils/.github/actions/checkout-gnu-coreutils
 
     #### Lima build environment setup
     - name: Setup Lima

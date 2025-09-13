@@ -1,0 +1,24 @@
+# spell-checker:ignore autopoint autotools gnulib gperf libattr libcap libexpect pyinotify texinfo valgrind
+
+name: 'Build GNU coreutils'
+description: 'Build GNU coreutils with configurable options'
+inputs:
+  extra-configure-options:
+    description: 'Extra options to pass to GNU configure'
+    required: false
+    default: ''
+  repo-dir:
+    description: 'Directory where the repo is checked out (default: uutils)'
+    required: false
+    default: 'uutils'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install dependencies and build
+      shell: bash
+      run: |
+        ## Install dependencies
+        sudo apt-get update
+        sudo apt-get install -y autoconf autopoint bison texinfo gperf gcc g++ gdb python3-pyinotify jq valgrind libexpect-perl libacl1-dev libattr1-dev libcap-dev libselinux1-dev attr quilt
+        ## Build GNU coreutils in specified repo directory
+        bash "${{ inputs.repo-dir }}/util/build-gnu.sh" --release-build ${{ inputs.extra-configure-options }}
