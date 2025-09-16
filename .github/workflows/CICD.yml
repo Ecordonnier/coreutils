@@ -830,6 +830,8 @@ jobs:
       shell: bash
       run: |
         ## Build
+        echo $GITHUB_WORKSPACE
+        echo "GITHUB_WORKSPACE is" $GITHUB_WORKSPACE
         ${{ steps.vars.outputs.CARGO_CMD }} ${{ steps.vars.outputs.CARGO_CMD_OPTIONS }} build --release \
         --target=${{ matrix.job.target }} ${{ matrix.job.cargo-options }} ${{ steps.vars.outputs.CARGO_FEATURES_OPTION }} ${{ steps.vars.outputs.CARGO_DEFAULT_FEATURES_OPTION }}
     # TODO: Once ubuntu-latest updates to 26.04 (which uses systemd-logind by default),
