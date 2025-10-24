@@ -194,9 +194,7 @@ UNIX_PROGS := \
 	users \
 	who
 
-SELINUX_PROGS := \
-	chcon \
-	runcon
+SELINUX_PROGS :=
 
 HASHSUM_PROGS := \
 	b2sum \
