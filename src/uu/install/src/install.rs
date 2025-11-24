@@ -711,10 +711,10 @@ fn copy_files_into_dir(files: &[PathBuf], target_dir: &Path, b: &Behavior) -> UR
     Ok(())
 }
 
-/// Handle incomplete user/group parings for chown.
+/// Handle ownership changes when explicit owner/group is specified.
 ///
 /// Returns a Result type with the Err variant containing the error message.
-/// If the user is root, revert the uid & gid
+/// Only calls chown when -o/--owner or -g/--group flags are used.
 ///
 /// # Parameters
 ///
@@ -733,13 +733,12 @@ fn chown_optional_user_group(path: &Path, b: &Behavior) -> UResult<()> {
     };
 
     // Determine the owner and group IDs to be used for chown.
+    // Only call chown when explicit ownership is specified via -o/--owner or -g/--group flags.
+    // When no ownership is specified, files naturally inherit the process owner/group.
     let (owner_id, group_id) = if b.owner_id.is_some() || b.group_id.is_some() {
         (b.owner_id, b.group_id)
-    } else if geteuid() == 0 {
-        // Special case for root user.
-        (Some(0), Some(0))
     } else {
-        // No chown operation needed.
+        // No chown operation needed - file ownership comes from process naturally.
         return Ok(());
     };
 
