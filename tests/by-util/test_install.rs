@@ -2489,3 +2489,67 @@ fn test_install_non_utf8_paths() {
 
     ucmd.arg("-D").arg(source_file).arg(&target_path).succeeds();
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+fn test_install_pseudo_chown_regression() {
+    // Regression test for issue #9116
+    // Tests that install works under pseudo with PSEUDO_IGNORE_PATHS
+    // This simulates the Yocto/OpenEmbedded build environment where
+    // explicit chown calls fail but natural ownership works.
+    
+    use std::process::Command;
+    use std::path::PathBuf;
+    
+    // Check if libpseudo.so exists (needed for LD_PRELOAD approach)
+    let libpseudo = "/usr/lib/x86_64-linux-gnu/pseudo/libpseudo.so";
+    if !std::path::Path::new(libpseudo).exists() {
+        println!("Skipping pseudo test - libpseudo.so not found at {}", libpseudo);
+        return;
+    }
+    
+    // Use the same TestScenario pattern as other tests
+    let ts = TestScenario::new(util_name!());
+    
+    // Get the path to our test fixture
+    let mut fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    fixture_path.push("tests/fixtures/install/chown-issue.sh");
+    
+    if !fixture_path.exists() {
+        panic!("Test fixture not found: {:?}", fixture_path);
+    }
+    
+    // Get the binary path using TestScenario (same as other tests)
+    let install_bin = ts.bin_path.to_string_lossy().to_string();
+    
+    // Set the working directory to the test fixtures area
+    let output = Command::new("bash")
+        .arg(&fixture_path)
+        .arg(&install_bin)
+        .current_dir(&ts.fixtures.as_string())
+        .output()
+        .expect("Failed to execute pseudo regression test");
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    
+    match output.status.code() {
+        Some(0) => {
+            println!("Pseudo regression test PASSED");
+        }
+        Some(2) => {
+            // Shell script returned skip code (pseudo not functional)
+            println!("Pseudo regression test SKIPPED: {}", stderr);
+            return;
+        }
+        Some(code) => {
+            panic!(
+                "Pseudo regression test FAILED (exit code: {}):\nSTDOUT:\n{}\nSTDERR:\n{}", 
+                code, stdout, stderr
+            );
+        }
+        None => {
+            panic!("Pseudo regression test terminated by signal:\nSTDOUT:\n{}\nSTDERR:\n{}", stdout, stderr);
+        }
+    }
+}
