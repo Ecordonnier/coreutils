@@ -83,29 +83,40 @@ pub fn binary_path(args: &mut impl Iterator<Item = OsString>) -> PathBuf {
     }
 }
 /// Get actual binary path from kernel, not argv0, to prevent `env -a` from bypassing
-/// AppArmor, SELinux policies on hard-linked binaries
+/// AppArmor, SELinux policies on hard-linked binaries.
+///
+/// execfn is not reliable in two known cases:
+/// - shebang execution: the kernel reports the script path, not the interpreter
+/// - memfd_create: path is /proc/self/fd/N which is not a real filesystem path
+///
+/// In those cases we fall back to argv0.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn binary_path(args: &mut impl Iterator<Item = OsString>) -> PathBuf {
     use std::fs::File;
     use std::io::Read;
     use std::os::unix::ffi::OsStrExt;
+
     let execfn = rustix::param::linux_execfn();
     let execfn_bytes = execfn.to_bytes();
-    let exec_path = Path::new(OsStr::from_bytes(execfn_bytes));
     let argv0 = args.next().unwrap();
-    let mut shebang_buf = [0u8; 2];
-    // exec_path is wrong when called from shebang or memfd_create (/proc/self/fd/*)
-    // argv0 is not full-path when called from PATH
-    if execfn_bytes.rsplit(|&b| b == b'/').next() == argv0.as_bytes().rsplit(|&b| b == b'/').next()
-        || execfn_bytes.starts_with(b"/proc/")
-        || (File::open(Path::new(exec_path))
+
+    // execfn is unreliable when the process was started via memfd_create
+    let execfn_is_memfd = execfn_bytes.starts_with(b"/proc/");
+
+    // execfn points to the script, not the interpreter, when run via shebang
+    let execfn_is_shebang = {
+        let mut shebang_buf = [0u8; 2];
+        File::open(OsStr::from_bytes(execfn_bytes))
             .and_then(|mut f| f.read_exact(&mut shebang_buf))
-            .is_ok()
-            && &shebang_buf == b"#!")
-    {
+            .is_ok_and(|_| shebang_buf == *b"#!")
+    };
+
+    if execfn_is_memfd || execfn_is_shebang {
+        // execfn is unreliable; fall back to argv0
         argv0.into()
     } else {
-        exec_path.into()
+        // Use the kernel-reported path as source of truth to prevent argv0 spoofing
+        Path::new(OsStr::from_bytes(execfn_bytes)).into()
     }
 }
 /// Extracts the binary name from a path
