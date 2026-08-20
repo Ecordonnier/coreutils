@@ -460,11 +460,25 @@ fn probe_bin_target_as_preloadable_shared_object() {
     fs::create_dir_all(scratch_path.join("src")).expect("failed to create src dir");
 
     // macOS uses Mach-O and needs -dynamiclib; ELF platforms (Linux, *BSD) use -shared.
-    let link_arg = if cfg!(target_os = "macos") {
-        "-dynamiclib"
+    // OpenBSD's default bin target spec unconditionally adds -pie, which its
+    // linker rejects when combined with -shared ("-shared and -pie may not be
+    // used together"); -no-pie cancels it there. On Linux, adding -no-pie
+    // alongside -shared instead makes the linker emit a plain non-PIE
+    // executable (not a real ET_DYN shared object), which ld.so then refuses
+    // to preload - so it must stay OpenBSD-specific, not blanket for all ELF
+    // platforms.
+    let extra_link_args: &[&str] = if cfg!(target_os = "macos") {
+        &["-dynamiclib"]
+    } else if cfg!(target_os = "openbsd") {
+        &["-shared", "-no-pie"]
     } else {
-        "-shared"
+        &["-shared"]
     };
+    let build_rs_body = extra_link_args
+        .iter()
+        .map(|arg| format!(r#"println!("cargo:rustc-link-arg-bin=probe-lib={arg}");"#))
+        .collect::<Vec<_>>()
+        .join(" ");
 
     fs::write(
         scratch_path.join("Cargo.toml"),
@@ -493,7 +507,7 @@ panic = "abort"
 
     fs::write(
         scratch_path.join("build.rs"),
-        format!(r#"fn main() {{ println!("cargo:rustc-link-arg-bin=probe-lib={link_arg}"); }}"#),
+        format!("fn main() {{ {build_rs_body} }}"),
     )
     .expect("failed to write scratch build.rs");
 
