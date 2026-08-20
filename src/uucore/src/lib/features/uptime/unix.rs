@@ -69,7 +69,16 @@ fn get_macos_boot_time_sysctl() -> Option<time_t> {
 pub fn get_uptime(_boot_time: Option<time_t>) -> UResult<i64> {
     use rustix::time::{ClockId, clock_gettime};
 
-    let tp = clock_gettime(ClockId::Boottime);
+    // rustix's always-supported `ClockId::Boottime` is only defined for
+    // Linux, Fuchsia and OpenBSD. FreeBSD (and DragonFly) expose the same
+    // clock under `CLOCK_UPTIME` instead; rustix documents it as an alias
+    // for boot time there.
+    #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+    let clock = ClockId::Uptime;
+    #[cfg(not(any(target_os = "freebsd", target_os = "dragonfly")))]
+    let clock = ClockId::Boottime;
+
+    let tp = clock_gettime(clock);
 
     Ok(tp.tv_sec as i64)
 }

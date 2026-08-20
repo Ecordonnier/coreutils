@@ -156,7 +156,9 @@ pub fn uu_app() -> Command {
 #[cfg(not(target_vendor = "apple"))]
 fn create_fifo(path: &str, mode: u32) -> std::io::Result<()> {
     use rustix::fs;
-    fs::mkfifoat(fs::CWD, path, Mode::from_bits_truncate(mode)).map_err(Into::into)
+    // `Mode`'s underlying bits type is platform-dependent (e.g. u16 on
+    // FreeBSD, u32 on Linux); let `as _` pick whichever it is here.
+    fs::mkfifoat(fs::CWD, path, Mode::from_bits_truncate(mode as _)).map_err(Into::into)
 }
 
 #[cfg(target_vendor = "apple")]

@@ -2,7 +2,7 @@
 //
 // For the full copyright and license information, please view the LICENSE
 // file that was distributed with this source code.
-// spell-checker:ignore cmdline dyld dylib PDEATHSIG setvbuf
+// spell-checker:ignore cmdline dyld dylib PDEATHSIG setvbuf preloadable dynamiclib
 
 #[cfg(target_os = "linux")]
 use uutests::at_and_ucmd;
@@ -432,6 +432,155 @@ fn test_stdbuf_no_fork_regression() {
     // Cleanup
     child.kill().ok();
     child.wait().ok();
+}
+
+/// EXPERIMENTAL / NOT FOR MERGE.
+///
+/// Investigates whether a plain `[[bin]]` target - the only kind of artifact
+/// `cargo install` is able to deploy (no `cdylib` support, see
+/// <https://github.com/rust-lang/cargo/issues/8317>) - can be linked as a
+/// genuine shared object (via `cargo:rustc-link-arg-bin`) and used as an
+/// `LD_PRELOAD`/`DYLD_INSERT_LIBRARIES` target, without ever being run
+/// directly. If this holds across platforms, `stdbuf` could ship `libstdbuf`
+/// as an installed `[[bin]]` target next to itself instead of embedding it
+/// and writing it to a temp directory at runtime.
+///
+/// This is a cross-platform CI probe, not permanent test coverage: it builds
+/// a disposable scratch crate in a temp directory and reports pass/fail per
+/// OS. Remove once the platforms of interest have been checked.
+#[test]
+#[cfg(unix)]
+fn probe_bin_target_as_preloadable_shared_object() {
+    use std::env;
+    use std::fs;
+    use std::process::Command;
+
+    let scratch = tempfile::tempdir().expect("failed to create scratch tempdir");
+    let scratch_path = scratch.path();
+    fs::create_dir_all(scratch_path.join("src")).expect("failed to create src dir");
+
+    // macOS uses Mach-O and needs -dynamiclib; ELF platforms (Linux, *BSD) use -shared.
+    // OpenBSD's default bin target spec unconditionally adds -pie, which its
+    // linker rejects when combined with -shared ("-shared and -pie may not be
+    // used together"); -no-pie cancels it there. On Linux, adding -no-pie
+    // alongside -shared instead makes the linker emit a plain non-PIE
+    // executable (not a real ET_DYN shared object), which ld.so then refuses
+    // to preload - so it must stay OpenBSD-specific, not blanket for all ELF
+    // platforms.
+    let extra_link_args: &[&str] = if cfg!(target_os = "macos") {
+        &["-dynamiclib"]
+    } else if cfg!(target_os = "openbsd") {
+        &["-shared", "-no-pie"]
+    } else {
+        &["-shared"]
+    };
+    let build_rs_body = extra_link_args
+        .iter()
+        .map(|arg| format!(r#"println!("cargo:rustc-link-arg-bin=probe-lib={arg}");"#))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    fs::write(
+        scratch_path.join("Cargo.toml"),
+        r#"
+[package]
+name = "preload-probe"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "probe-lib"
+path = "src/lib_main.rs"
+
+[[bin]]
+name = "probe-target"
+path = "src/target_main.rs"
+
+[dependencies]
+ctor = "1.0.0"
+
+[profile.release]
+panic = "abort"
+"#,
+    )
+    .expect("failed to write scratch Cargo.toml");
+
+    fs::write(
+        scratch_path.join("build.rs"),
+        format!("fn main() {{ {build_rs_body} }}"),
+    )
+    .expect("failed to write scratch build.rs");
+
+    fs::write(
+        scratch_path.join("src/lib_main.rs"),
+        r#"
+use ctor::ctor;
+use std::io::Write;
+
+#[ctor(unsafe)]
+fn init() {
+    let _ = writeln!(std::io::stderr(), "PROBE_CTOR_RAN");
+}
+
+fn main() {}
+"#,
+    )
+    .expect("failed to write scratch lib_main.rs");
+
+    fs::write(
+        scratch_path.join("src/target_main.rs"),
+        r#"fn main() { println!("PROBE_TARGET_RAN"); }"#,
+    )
+    .expect("failed to write scratch target_main.rs");
+
+    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let build = Command::new(&cargo)
+        .args(["build", "--release"])
+        .current_dir(scratch_path)
+        .env_remove("CARGO_TARGET_DIR")
+        .output()
+        .expect("failed to spawn cargo build for scratch probe crate");
+    assert!(
+        build.status.success(),
+        "scratch probe crate failed to build.\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr),
+    );
+
+    let lib_path = scratch_path.join("target/release/probe-lib");
+    let target_path = scratch_path.join("target/release/probe-target");
+    assert!(
+        lib_path.exists(),
+        "expected {lib_path:?} to exist after build"
+    );
+    assert!(
+        target_path.exists(),
+        "expected {target_path:?} to exist after build"
+    );
+
+    let preload_var = if cfg!(target_os = "macos") {
+        "DYLD_INSERT_LIBRARIES"
+    } else {
+        "LD_PRELOAD"
+    };
+
+    let run = Command::new(&target_path)
+        .env(preload_var, &lib_path)
+        .output()
+        .expect("failed to run probe target with preload set");
+
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    println!("probe run stdout:\n{stdout}\nprobe run stderr:\n{stderr}");
+
+    assert!(
+        stdout.contains("PROBE_TARGET_RAN"),
+        "target binary did not run normally under preload; stdout={stdout:?} stderr={stderr:?}"
+    );
+    assert!(
+        stderr.contains("PROBE_CTOR_RAN"),
+        "constructor in the bin-linked-as-shared-object did not run via {preload_var}; stdout={stdout:?} stderr={stderr:?}"
+    );
 }
 
 #[cfg(unix)]
