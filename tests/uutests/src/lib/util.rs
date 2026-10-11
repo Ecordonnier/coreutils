@@ -89,7 +89,13 @@ macro_rules! get_tests_binary {
     };
 }
 
-pub const PATH: &str = env!("PATH");
+/// The `PATH` to run commands with a cleared environment with
+///
+/// It is read at runtime instead of compile time, so that the build
+/// environment is not embedded in the test binaries.
+pub fn path() -> OsString {
+    env::var_os("PATH").unwrap_or_default()
+}
 
 /// Default environment variables to run the commands with
 const DEFAULT_ENV: [(&str, &str); 2] = [("LC_ALL", "C"), ("TZ", "UTC")];
@@ -3198,7 +3204,7 @@ pub fn gnu_cmd_result(
 
     let result = ts
         .cmd(util_name.as_ref())
-        .env("PATH", PATH)
+        .env("PATH", path())
         .envs(DEFAULT_ENV)
         .envs(envs.iter().copied())
         .args(args)
@@ -3308,7 +3314,7 @@ pub fn run_ucmd_as_root_with_stdin_stdout(
                 // we can run sudo and we're root
                 // run ucmd as root:
                 let mut cmd = ts.cmd("sudo");
-                cmd.env("PATH", PATH)
+                cmd.env("PATH", path())
                     .envs(DEFAULT_ENV)
                     .arg("-E")
                     .arg("--non-interactive")
