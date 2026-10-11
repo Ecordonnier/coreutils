@@ -10,19 +10,14 @@ use uutests::util::TestScenario;
 #[cfg(unix)]
 use std::os::unix::fs::symlink as symlink_file;
 
-use std::env;
-pub const TESTS_BINARY: &str = env!("CARGO_BIN_EXE_coreutils");
-
 // Set the environment variable for any tests
 
 // Use the ctor attribute to run this function before any tests
 #[ctor::ctor(unsafe)]
 fn init() {
-    unsafe {
-        env::set_var("UUTESTS_BINARY_PATH", TESTS_BINARY);
-    }
+    uutests::util::set_default_tests_binary("coreutils");
     // Print for debugging
-    eprintln!("Setting UUTESTS_BINARY_PATH={TESTS_BINARY}");
+    eprintln!("UUTESTS_BINARY_PATH={}", uutests::util::get_tests_binary());
 }
 
 #[test]
@@ -263,7 +258,7 @@ fn util_version() {
         assert_eq!(output.status.code(), Some(0));
         assert_eq!(output.stderr, b"");
         let output_str = String::from_utf8(output.stdout).unwrap();
-        let ver = env::var("CARGO_PKG_VERSION").unwrap();
+        let ver = env!("CARGO_PKG_VERSION");
         assert_eq!(format!("coreutils {ver} (multi-call binary)\n"), output_str);
     }
 }
